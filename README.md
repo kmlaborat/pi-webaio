@@ -7,6 +7,95 @@
 All-in-one web access tools for [pi](https://pi.dev): search, fetch, crawl,
 extract, map, cache, chunk, and render web content for AI agents.
 
+## Fork Note
+
+This repository is a fork of
+[apmantza/pi-webaio](https://github.com/apmantza/pi-webaio). It exists to
+carry one local fix and is not a divergence in scope.
+
+### The bug
+
+Searching or fetching results containing long CJK or other wide-character
+text could crash the pi TUI with:
+
+```text
+Rendered line 0 exceeds terminal width (65 > 60).
+```
+
+pi-tui enforces a hard invariant: every line a component renders must fit
+the requested terminal width, and it throws when a line does not.
+
+### Root cause
+
+The fallback TUI renderers measured that width with JavaScript's
+`String.length`, which counts UTF-16 code units. For CJK and other wide
+characters a single character is one code unit but occupies two terminal
+columns, so `String.length` is not the display width:
+
+```text
+input:  aio-webfetch https://ja.wikipedia.org/wiki/日本語のページタイトル
+        String.length       = 54
+        display columns     = 65
+        terminal width      = 60
+
+        54 > 60  →  false  →  no truncation performed
+                         →  a 65-column line is handed to pi-tui
+                         →  pi-tui throws
+```
+
+The guard passed, so the text was never truncated at all. This surfaced on
+the first tool call of a session because `renderCall` runs through the lazy
+fallback path before the full runtime renderer is loaded.
+
+### The fix
+
+A dependency-free display-column helper was added at
+`src/display-width.ts`:
+
+- `displayWidth(text)` — estimated terminal display width in columns
+- `truncateToDisplayWidth(text, width, ellipsis?)` — truncate to a column
+  budget
+
+The two fallback renderers that returned raw `string[]` — `fallbackComponent`
+in `src/tools/lazy.ts` and `FallbackText.render` in `src/tools/tui-compat.ts`
+— now truncate with that helper instead of `.length`. The invariant the fix
+establishes is:
+
+```text
+displayWidth(truncateToDisplayWidth(s, width)) <= width
+```
+
+The fix corrects the measurement unit. It does not catch or swallow the
+exception; the fallback renderer itself now satisfies the width invariant
+before any line reaches pi-tui.
+
+The helper is a **safe, conservative estimate**, not a complete Unicode
+width implementation, and it is deliberately not claimed to match
+`pi-tui`'s `visibleWidth()` exactly. Known differences all err wide, which
+is the safe direction (`displayWidth(s) >= visibleWidth(s)`): combining
+marks count as one column, ZWJ emoji clusters are counted as the sum of
+their parts, and narrow scripts above U+2E80 count as two columns.
+Over-truncation is cosmetic; under-counting crashes the host.
+
+### Scope
+
+The change is limited to the fallback rendering paths that could emit an
+over-width line. Every other `render()` in the codebase delegates to
+`Text` or `Markdown`, which wrap, so those paths cannot overflow and were
+left alone.
+
+This fork deliberately does **not** undertake a general Unicode migration of
+`.length` or `.slice()` usage. Those sites may still have CJK display-quality
+issues; they are cosmetic, not crash-causing, and are out of scope here.
+
+### Upstream relationship
+
+This fix is maintained locally and is not intended as a pull request. It is
+documented here so that the diff — what was broken, why it was broken, and
+what was changed — is legible to anyone reading it later, including
+upstream.
+
+
 ## What It Does
 
 pi-webaio registers eight pi tools:

@@ -7,6 +7,7 @@
  * that ask a non-pi runtime to render a result anyway.
  */
 import type { MarkdownTheme as PiMarkdownTheme } from "@earendil-works/pi-tui";
+import { truncateToDisplayWidth } from "../display-width.ts";
 
 export type MarkdownTheme = PiMarkdownTheme;
 
@@ -35,7 +36,7 @@ class FallbackText implements TextLike {
 		return this.value
 			.split("\n")
 			.map((line) =>
-				line.length > width ? `${line.slice(0, Math.max(0, width - 1))}…` : line,
+				truncateToDisplayWidth(line, width),
 			);
 	}
 

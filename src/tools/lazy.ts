@@ -11,6 +11,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { redactSecrets } from "../redact.ts";
+import { truncateToDisplayWidth } from "../display-width.ts";
 
 type JsonSchema = Record<string, unknown>;
 type ToolArgs = Record<string, unknown>;
@@ -493,9 +494,11 @@ function fallbackComponent(text: string): {
 } {
 	return {
 		render(width: number): string[] {
-			return [
-				text.length > width && width > 1 ? `${text.slice(0, width - 1)}…` : text,
-			];
+			// Truncate by display columns, not UTF-16 code units: a CJK
+			// character is 1 code unit but 2 terminal columns, so a
+			// `.length` guard lets over-wide text reach pi-tui, which
+			// throws on it.
+			return [truncateToDisplayWidth(text, width)];
 		},
 		invalidate(): void {
 			// The fallback is immutable.
